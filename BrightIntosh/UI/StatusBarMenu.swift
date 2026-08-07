@@ -589,7 +589,9 @@ class StatusBarMenu : NSObject, NSMenuDelegate {
 #endif
     
     @objc func exitBrightIntosh() {
-        exit(0)
+        // Let NSApplication run its normal termination lifecycle so the
+        // brightness manager can synchronously restore the display gamma.
+        NSApplication.shared.terminate(nil)
     }
     
     @objc func openSettings() {

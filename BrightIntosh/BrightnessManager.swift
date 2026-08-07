@@ -15,6 +15,7 @@ extension NSScreen {
 @MainActor
 protocol BrightnessManaging: AnyObject {
     func appendSupportDiagnostics(to report: inout String)
+    func shutdown(reason: String)
 }
 
 @MainActor
@@ -56,6 +57,7 @@ final class BrightnessManager: BrightnessManaging {
     private var stabilizationTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     private var lastScreenParameterDiagnosticDate: Date?
+    private var isShutDown = false
 
     nonisolated private static let displayReconfigurationCallback: CGDisplayReconfigurationCallBack = {
         displayId,
@@ -119,6 +121,27 @@ final class BrightnessManager: BrightnessManaging {
 
         Task { @MainActor in
             brightnessTechnique.disable()
+        }
+    }
+
+    /// Synchronously restores every display state before the application exits.
+    ///
+    /// Relying on `deinit` is too late for a menu-bar app because an immediate
+    /// process exit can prevent the asynchronous fallback cleanup from running.
+    func shutdown(reason: String) {
+        guard !isShutDown else { return }
+        isShutDown = true
+
+        print("Shutting down brightness manager: \(reason)")
+        BrightnessDiagnosticHistory.record("Brightness manager shutdown: \(reason)")
+        cancelScheduledActivation()
+
+        if brightnessTechnique.isEnabled {
+            brightnessTechnique.disable()
+        } else {
+            // Also clear a stale system transfer table left by an interrupted
+            // previous run before this process had a chance to enable a backend.
+            GammaTechnique.restoreSystemColorState()
         }
     }
 

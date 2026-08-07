@@ -164,6 +164,11 @@ extension BrightIntoshAppDelegate: NSApplicationDelegate {
         
         ProcessInfo.processInfo.disableSuddenTermination()
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        brightnessManager?.shutdown(reason: "application terminating")
+        SupportReportContext.brightnessManager = nil
+    }
     
     func applyActivationPolicy() {
         if BrightIntoshSettings.shared.showInDock {

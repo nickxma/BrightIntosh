@@ -1,0 +1,89 @@
+name: Build hardened Apple Silicon fork
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - vivid-parity-hardening
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  ARCHIVE_NAME: BrightIntosh-6.0.8-nickbuild-arm64.zip
+
+jobs:
+  build:
+    runs-on: macos-26
+
+    steps:
+      - name: Check out fork source
+        uses: actions/checkout@v5
+
+      - name: Verify fork hardening invariants
+        run: scripts/verify-fork-hardening.sh
+
+      - name: Verify non-Store scheme
+        run: |
+          set -euo pipefail
+          grep -q 'BlueprintName = "BrightIntosh"' BrightIntosh.xcodeproj/xcshareddata/xcschemes/BrightIntosh.xcscheme
+          settings="$(xcodebuild -project BrightIntosh.xcodeproj -scheme BrightIntosh -configuration Release -destination 'platform=macOS,arch=arm64' -showBuildSettings)"
+          conditions="$(printf '%s\n' "$settings" | awk -F ' = ' '/SWIFT_ACTIVE_COMPILATION_CONDITIONS/ { print $2; exit }')"
+          if printf '%s\n' "$conditions" | grep -Eq '(^|[[:space:]])STORE($|[[:space:]])'; then
+            echo "STORE compilation condition unexpectedly enabled: $conditions" >&2
+            exit 1
+          fi
+
+      - name: Build Release for arm64
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project BrightIntosh.xcodeproj \
+            -scheme BrightIntosh \
+            -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath build/DerivedData \
+            DEVELOPMENT_TEAM='' \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGNING_ALLOWED=NO \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            build
+
+      - name: Ad-hoc sign, verify, and package
+        run: |
+          set -euo pipefail
+          app='build/DerivedData/Build/Products/Release/BrightIntosh.app'
+          stage="$RUNNER_TEMP/brightintosh-stage"
+
+          test -d "$app"
+          rm -rf "$stage"
+          mkdir -p "$stage" dist
+          ditto "$app" "$stage/BrightIntosh.app"
+          codesign --force --deep --sign - "$stage/BrightIntosh.app"
+          codesign --verify --deep --strict --verbose=2 "$stage/BrightIntosh.app"
+
+          archs="$(lipo -archs "$stage/BrightIntosh.app/Contents/MacOS/BrightIntosh")"
+          identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$stage/BrightIntosh.app/Contents/Info.plist")"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$stage/BrightIntosh.app/Contents/Info.plist")"
+          test "$archs" = arm64
+          test "$identifier" = de.brightintosh.app
+          test "$version" = 6.0.8
+
+          ditto -c -k --sequesterRsrc --keepParent "$stage/BrightIntosh.app" "dist/$ARCHIVE_NAME"
+          unzip -t "dist/$ARCHIVE_NAME"
+          (cd dist && shasum -a 256 "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256")
+
+      - name: Upload verified artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrightIntosh-6.0.8-nickbuild-arm64
+          path: |
+            dist/BrightIntosh-6.0.8-nickbuild-arm64.zip
+            dist/BrightIntosh-6.0.8-nickbuild-arm64.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
