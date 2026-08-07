@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Check out exact official source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: niklasr22/BrightIntosh
           ref: c94803544e959c988f407865a70c8cc0c9f02655
@@ -77,9 +77,13 @@ jobs:
           codesign --force --deep --sign - "$stage/BrightIntosh.app"
           codesign --verify --deep --strict --verbose=2 "$stage/BrightIntosh.app"
 
-          test "$(lipo -archs "$stage/BrightIntosh.app/Contents/MacOS/BrightIntosh")" = arm64
-          test "$(defaults read "$stage/BrightIntosh.app/Contents/Info" CFBundleIdentifier)" = de.brightintosh.app
-          test "$(defaults read "$stage/BrightIntosh.app/Contents/Info" CFBundleShortVersionString)" = 6.0.8
+          archs="$(lipo -archs "$stage/BrightIntosh.app/Contents/MacOS/BrightIntosh")"
+          identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$stage/BrightIntosh.app/Contents/Info.plist")"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$stage/BrightIntosh.app/Contents/Info.plist")"
+          printf 'Architectures: %s\nBundle identifier: %s\nVersion: %s\n' "$archs" "$identifier" "$version"
+          test "$archs" = arm64
+          test "$identifier" = de.brightintosh.app
+          test "$version" = 6.0.8
 
           ditto -c -k --sequesterRsrc --keepParent "$stage/BrightIntosh.app" "dist/$ARCHIVE_NAME"
           unzip -t "dist/$ARCHIVE_NAME"
