@@ -244,7 +244,7 @@ struct AdvancedSettingsSheet: View {
             
             VStack(alignment: .leading, spacing: 12) {
                 Toggle(
-                    "Use alternate brightness backend",
+                    "Use compatibility overlay backend",
                     isOn: $useAlternateBrightnessBackend
                 )
                 .onChange(of: useAlternateBrightnessBackend) { _, new in
@@ -252,6 +252,13 @@ struct AdvancedSettingsSheet: View {
                 }
                 
                 if useAlternateBrightnessBackend {
+                    Label(
+                        "Compatibility mode uses a full-screen overlay and may lose increased brightness in Mission Control or window overviews. Use it only if the standard gamma backend fails.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+
                     Toggle(
                         "Wait for HDR before increasing brightness",
                         isOn: $waitForHDRBeforeIncreasingBrightness
@@ -269,7 +276,7 @@ struct AdvancedSettingsSheet: View {
                     BrightIntoshSettings.shared.showHDRRetryCooldownNotice = new
                 }
                 
-                Text("These options can help when extra brightness does not behave as expected.")
+                Text("The standard gamma backend is recommended for consistent brightness across apps, Spaces, and Mission Control.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
