@@ -1,0 +1,96 @@
+name: Build Apple Silicon self-build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM_COMMIT: c94803544e959c988f407865a70c8cc0c9f02655
+  UPSTREAM_TAG: v6.0.8
+  ARCHIVE_NAME: BrightIntosh-6.0.8-selfbuild-arm64.zip
+
+jobs:
+  build:
+    runs-on: macos-26
+
+    steps:
+      - name: Check out exact official source
+        uses: actions/checkout@v4
+        with:
+          repository: niklasr22/BrightIntosh
+          ref: c94803544e959c988f407865a70c8cc0c9f02655
+          fetch-depth: 0
+          path: source
+
+      - name: Verify exact clean upstream checkout
+        working-directory: source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$UPSTREAM_COMMIT"
+          test "$(git rev-parse "$UPSTREAM_TAG^{commit}")" = "$UPSTREAM_COMMIT"
+          test -z "$(git status --porcelain)"
+          git diff --exit-code
+          git diff --cached --exit-code
+          test "$(git config --get remote.origin.url)" = "https://github.com/niklasr22/BrightIntosh"
+
+      - name: Verify non-Store scheme
+        working-directory: source
+        run: |
+          set -euo pipefail
+          grep -q 'BlueprintName = "BrightIntosh"' BrightIntosh.xcodeproj/xcshareddata/xcschemes/BrightIntosh.xcscheme
+          settings="$(xcodebuild -project BrightIntosh.xcodeproj -scheme BrightIntosh -configuration Release -destination 'platform=macOS,arch=arm64' -showBuildSettings)"
+          conditions="$(printf '%s\n' "$settings" | awk -F ' = ' '/SWIFT_ACTIVE_COMPILATION_CONDITIONS/ { print $2; exit }')"
+          if printf '%s\n' "$conditions" | grep -Eq '(^|[[:space:]])STORE($|[[:space:]])'; then
+            echo "STORE compilation condition unexpectedly enabled: $conditions" >&2
+            exit 1
+          fi
+
+      - name: Build Release for arm64
+        working-directory: source
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project BrightIntosh.xcodeproj \
+            -scheme BrightIntosh \
+            -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath build/DerivedData \
+            DEVELOPMENT_TEAM='' \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Ad-hoc sign, verify, and package
+        working-directory: source
+        run: |
+          set -euo pipefail
+          app='build/DerivedData/Build/Products/Release/BrightIntosh.app'
+          executable="$app/Contents/MacOS/BrightIntosh"
+          stage="$RUNNER_TEMP/brightintosh-stage"
+
+          test -d "$app"
+          rm -rf "$stage"
+          mkdir -p "$stage" dist
+          ditto "$app" "$stage/BrightIntosh.app"
+          codesign --force --deep --sign - "$stage/BrightIntosh.app"
+          codesign --verify --deep --strict --verbose=2 "$stage/BrightIntosh.app"
+
+          test "$(lipo -archs "$stage/BrightIntosh.app/Contents/MacOS/BrightIntosh")" = arm64
+          test "$(defaults read "$stage/BrightIntosh.app/Contents/Info" CFBundleIdentifier)" = de.brightintosh.app
+          test "$(defaults read "$stage/BrightIntosh.app/Contents/Info" CFBundleShortVersionString)" = 6.0.8
+
+          ditto -c -k --sequesterRsrc --keepParent "$stage/BrightIntosh.app" "dist/$ARCHIVE_NAME"
+          unzip -t "dist/$ARCHIVE_NAME"
+          shasum -a 256 "dist/$ARCHIVE_NAME" > "dist/$ARCHIVE_NAME.sha256"
+
+      - name: Upload verified artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrightIntosh-6.0.8-selfbuild-arm64
+          path: |
+            source/dist/BrightIntosh-6.0.8-selfbuild-arm64.zip
+            source/dist/BrightIntosh-6.0.8-selfbuild-arm64.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
