@@ -89,7 +89,7 @@ jobs:
 
           ditto -c -k --sequesterRsrc --keepParent "$stage/BrightIntosh.app" "dist/$ARCHIVE_NAME"
           unzip -t "dist/$ARCHIVE_NAME"
-          shasum -a 256 "dist/$ARCHIVE_NAME" > "dist/$ARCHIVE_NAME.sha256"
+          (cd dist && shasum -a 256 "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256")
 
       - name: Upload verified artifacts
         uses: actions/upload-artifact@v4
