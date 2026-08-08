@@ -10,6 +10,17 @@ import KeyboardShortcuts
 
 @MainActor
 class StatusBarMenu : NSObject, NSMenuDelegate {
+    private static let enabledStatusIcon: NSImage? = {
+        let encodedPNG = "iVBORw0KGgoAAAANSUhEUgAAAA8AAAAPCAYAAAA71pVKAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAD6ADAAQAAAABAAAADwAAAAAHNtsJAAABT0lEQVQoFYXSOy9EQRTA8YsgRKIQiUdColAQj0IUGisaYoNOq/ARfAhBRYViRaJSKTQ60ShUqLwaRCQi3qLw+P83d9hk93KS356ZOefuzuydKEqOSUpfGE5u+a00MTzDAsbwCB++RhrLOEUVslEUBuQOHMTzK/IOTtCGFGphmG8dFPsRx2ecF8lDOEcrjtCPdeRFHytruIvzBPkVbjm4ZzyIbdxgBV2I5mHTO9ziQzwPD4bsUbpzatOMowq4tX1MITQXyiPU/ZJdlHjmN2RwgQb8FfUUL7GEDxv9U57gaxhFoV8Ma71xr+euQ7SKUOxhvJczD+vmTbjtsDbDOHvmcfIGfM8t2EJoMvuaXPdoGXjryvAT7YxsPEYK3jhzI9LwrNZrkBedrFjUC57hTvxDnYeaNywvqlmZwwAqcQgf8JqWw63OohT/hjvxbjcndX4D/5trgcrLBdsAAAAASUVORK5CYII="
+        guard let data = Data(base64Encoded: encodedPNG),
+              let image = NSImage(data: data) else {
+            return nil
+        }
+        image.size = NSSize(width: 15, height: 15)
+        image.isTemplate = true
+        return image
+    }()
+
     private var brightnessSliderContainerView: NSView?
     private var supportedDevice: Bool = false
     private var automationManager: AutomationManager
@@ -70,8 +81,6 @@ class StatusBarMenu : NSObject, NSMenuDelegate {
         menu.minimumWidth = 280
         
         titleItem = NSMenuItem(title: titleString, action: #selector(openWebsite), keyEquivalent: "")
-        titleItem.image = NSImage(named: "LogoLG")
-        titleItem.image?.size = CGSize(width: 28, height: 28)
         
         toggleIncreasedBrightnessItem = NSMenuItem(title: "", action: #selector(callToggleBrightIntosh), keyEquivalent: "")
         toggleIncreasedBrightnessItem.setShortcut(for: .toggleBrightIntosh)
@@ -451,15 +460,36 @@ class StatusBarMenu : NSObject, NSMenuDelegate {
     
     private func createStatusBarItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem?.menu = menu
+        guard let button = statusItem?.button else { return }
+        button.target = self
+        button.action = #selector(statusItemClicked(_:))
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            statusItem?.menu = menu
+            sender.performClick(nil)
+            statusItem?.menu = nil
+            return
+        }
+
+        callToggleBrightIntosh()
     }
     
     func updateMenu() {
         guard let statusItem else { return }
         
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: BrightIntoshSettings.shared.brightintoshActive ? "sun.max.circle.fill" : "sun.max.circle", accessibilityDescription: BrightIntoshSettings.shared.brightintoshActive ? "Increased brightness" : "Default brightness")
-            button.toolTip = titleString
+            let isActive = BrightIntoshSettings.shared.brightintoshActive
+            button.image = isActive
+                ? Self.enabledStatusIcon
+                : NSImage(systemSymbolName: "moon.fill", accessibilityDescription: "Increased brightness disabled")
+            button.image?.isTemplate = true
+            button.setAccessibilityLabel(isActive ? "Increased brightness enabled" : "Increased brightness disabled")
+            button.toolTip = "Click to toggle increased brightness; right-click for menu"
         }
         
         toggleIncreasedBrightnessItem.title = BrightIntoshSettings.shared.brightintoshActive ? String(localized: "Deactivate") : String(localized: "Activate")
